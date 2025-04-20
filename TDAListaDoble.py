@@ -25,20 +25,34 @@ class ListaVuelos(_DoublyLinkedBase):
         return self._trailer._prev._element
     
     def insertar_en_posicion(self, vuelo, posicion):
-        """Inserta un vuelo en una posición específica."""
+        """Elimina el vuelo original (si existe) y lo inserta en la nueva posición."""
         if posicion < 0 or posicion > self._size:
             raise OwnValueError("Posición inválida")
-        
+
+        # Buscar y eliminar el vuelo si ya está en la lista
+        self._eliminar_por_id(vuelo.id)  # Nueva función auxiliar
+
+        # Insertar en la nueva posición
         if posicion == 0:
-            return self.add_first(vuelo)
+            self.add_first(vuelo)
         elif posicion == self._size:
-            return self.add_last(vuelo)
-        
-        current = self._header._next
-        for _ in range(posicion):
-            current = current._next
-        self._insert_between(vuelo, current._prev, current)
-    
+            self.add_last(vuelo)
+        else:
+            current = self._header._next
+            for _ in range(posicion):
+                current = current._next
+            self._insert_between(vuelo, current._prev, current)
+
+    def _eliminar_por_id(self, id_vuelo):
+        """Elimina un nodo por ID de vuelo (auxiliar para evitar duplicados)."""
+        nodo_actual = self._header._next
+        while nodo_actual != self._trailer:
+            if nodo_actual._element.id == id_vuelo:
+                self._delete_node(nodo_actual)
+                return True
+            nodo_actual = nodo_actual._next
+        return False
+
     def extraer_de_posicion(self, posicion):
         """Elimina y retorna el vuelo en la posición dada."""
         if posicion < 0 or posicion >= self._size:
