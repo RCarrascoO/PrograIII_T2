@@ -15,13 +15,16 @@ Session = sessionmaker(bind=engine)
 # Inicializar la lista doblemente enlazada con vuelos de la BD
 def cargar_vuelos_desde_bd():
     db = Session()
-    vuelos = db.query(Vuelo).order_by(Vuelo.hora).all()
-    lista_vuelos = ListaVuelos()
-    for vuelo in vuelos:
-        lista_vuelos.insertar_al_final(vuelo)
-    db.close()
-    return lista_vuelos
-
+    try:
+        vuelos = db.query(Vuelo).order_by(Vuelo.hora).all()
+        lista_vuelos = ListaVuelos()
+        # Expulsar los objetos de la sesión pero mantener los datos
+        for vuelo in vuelos:
+            db.expunge(vuelo)  # Desconecta el objeto pero mantiene sus datos
+            lista_vuelos.insertar_al_final(vuelo)
+        return lista_vuelos
+    finally:
+        db.close()
 lista_vuelos = cargar_vuelos_desde_bd()
 
 @app.post("/vuelos/")
@@ -132,47 +135,65 @@ def extraer_vuelo_posicion(posicion: int):
 
 @app.get("/vuelos/lista")
 def listar_vuelos():
-    return {"vuelos": [{"codigo": v.codigo, "estado": v.estado} for v in lista_vuelos.listar_vuelos()]}
+    # Crear una lista con los datos básicos (no objetos ORM)
+    vuelos = []
+    for v in lista_vuelos.listar_vuelos():
+        vuelos.append({
+            "codigo": v.codigo,
+            "estado": v.estado.value if isinstance(v.estado, EstadoVuelo) else v.estado,
+            "origen": v.origen,
+            "destino": v.destino
+        })
+    return {"vuelos": vuelos}
+
 
 @app.patch("/vuelos/reordenar")
-def reordenar_vuelos(nuevo_orden: List[str]):
-    """
-    Reordena la lista de vuelos según los códigos proporcionados.
-    Ejemplo: ["AV202", "EM001", "VL205"]
-    """
+def reordenar_vuelo(codigo: str, nuevo_estado: EstadoVuelo):
     db = Session()
     try:
-        # Verificar que todos los códigos existan en la BD
-        vuelos_en_bd = {v.codigo: v for v in db.query(Vuelo).all()}
-        vuelos_a_reordenar = []
-        
-        for codigo in nuevo_orden:
-            if codigo not in vuelos_en_bd:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Vuelo {codigo} no encontrado en la BD"
+        # 1. Buscar el vuelo en BD con la sesión actual
+        vuelo = db.query(Vuelo).filter(Vuelo.codigo == codigo).first()
+        if not vuelo:
+            raise HTTPException(status_code=404, detail="Vuelo no encontrado")
+
+        # 2. Guardar estado anterior
+        estado_anterior = vuelo.estado
+
+        # 3. Actualizar el objeto completo en memoria
+        vuelo.estado = nuevo_estado
+        db.commit()  # Primero actualizamos la BD
+
+        # 4. Reordenamiento físico en la lista
+        if nuevo_estado != estado_anterior:
+            # Eliminar el vuelo (si existe)
+            elemento, pos_original = lista_vuelos._eliminar_por_id(vuelo.id)
+            
+            if elemento:
+                # Clonar el objeto actualizado
+                vuelo_actualizado = Vuelo(
+                    id=vuelo.id,
+                    codigo=vuelo.codigo,
+                    estado=vuelo.estado,
+                    origen=vuelo.origen,
+                    destino=vuelo.destino,
+                    hora=vuelo.hora
                 )
-            vuelos_a_reordenar.append(vuelos_en_bd[codigo])
-        
-        # Crear una nueva lista temporal
-        lista_temporal = ListaVuelos()
-        
-        # Reinsertar los vuelos en el nuevo orden
-        for vuelo in vuelos_a_reordenar:
-            lista_temporal.insertar_al_final(vuelo)
-        
-        # Reemplazar la lista original
-        global lista_vuelos
-        lista_vuelos = lista_temporal
-        
+                
+                if nuevo_estado == EstadoVuelo.EMERGENCIA:
+                    lista_vuelos.insertar_al_frente(vuelo_actualizado)
+                elif nuevo_estado == EstadoVuelo.RETRASADO:
+                    lista_vuelos.insertar_al_final(vuelo_actualizado)
+                else:  # programado
+                    lista_vuelos.insertar_en_posicion(vuelo_actualizado, pos_original)
+
         return {
-            "mensaje": "Lista de vuelos reordenada",
-            "nuevo_orden": [v.codigo for v in lista_vuelos.listar_vuelos()]
+            "mensaje": f"Estado actualizado a {nuevo_estado.value}",
+            "en_bd": vuelo.estado.value,
+            "en_lista": lista_vuelos._buscar_por_id(vuelo.id).estado.value if lista_vuelos._buscar_por_id(vuelo.id) else "no_encontrado"
         }
-        
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         db.close()
-

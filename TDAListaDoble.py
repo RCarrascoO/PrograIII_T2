@@ -43,15 +43,27 @@ class ListaVuelos(_DoublyLinkedBase):
                 current = current._next
             self._insert_between(vuelo, current._prev, current)
 
+    def _buscar_por_id(self, id_vuelo):
+        """Busca un vuelo por ID y devuelve el nodo completo"""
+        current = self._header._next
+        while current != self._trailer:
+            if current._element.id == id_vuelo:
+                return current._element
+            current = current._next
+        return None
+
     def _eliminar_por_id(self, id_vuelo):
-        """Elimina un nodo por ID de vuelo (auxiliar para evitar duplicados)."""
-        nodo_actual = self._header._next
-        while nodo_actual != self._trailer:
-            if nodo_actual._element.id == id_vuelo:
-                self._delete_node(nodo_actual)
-                return True
-            nodo_actual = nodo_actual._next
-        return False
+        """Devuelve (elemento, posición_original)"""
+        current = self._header._next
+        pos = 0
+        while current != self._trailer:
+            if current._element.id == id_vuelo:
+                elemento = current._element
+                self._delete_node(current)
+                return elemento, pos
+            current = current._next
+            pos += 1
+        return None, -1
 
     def extraer_de_posicion(self, posicion):
         """Elimina y retorna el vuelo en la posición dada."""
@@ -71,3 +83,7 @@ class ListaVuelos(_DoublyLinkedBase):
             vuelos.append(current._element)
             current = current._next
         return vuelos
+    
+
+
+
